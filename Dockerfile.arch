@@ -1,0 +1,106 @@
+FROM archlinux:latest
+ENV LANG=en_US.UTF-8
+ENV LC_ALL=en_US.UTF-8
+ENV CI_NETWORK=true
+RUN echo fubar > /etc/machine-id
+RUN sed "s,#en_US.UTF-8,en_US.UTF-8," /etc/locale.gen -i
+RUN echo "LANG=en_US.UTF-8" > /etc/locale.conf
+RUN locale-gen
+RUN pacman -Sy --noconfirm archlinux-keyring
+RUN pacman -Syu --noconfirm \
+        audit                   \
+        bash                    \
+        base-devel              \
+        ca-certificates-mozilla \
+        coreutils               \
+        cryptsetup              \
+        clang			\
+        cpio			\
+        curl                    \
+        dbus-broker             \
+        dbus-broker-units       \
+        dbus-units              \
+        device-mapper           \
+        e2fsprogs               \
+        expat                   \
+        filesystem              \
+        gcc-libs                \
+        gc			\
+        gdbm                    \
+        gettext                 \
+        glib2                   \
+        glibc                   \
+        gnupg                   \
+        gnutls                  \
+        gpgme                   \
+        graphviz		\
+        guile			\
+        hwdata                  \
+        iana-etc                \
+        icu                     \
+        imagemagick		\
+        iproute2                \
+        iptables                \
+        iputils                 \
+        jansson                 \
+        json-c                  \
+        kbd                     \
+        kmod                    \
+        krb5                    \
+        leancrypto              \
+        libarchive              \
+        libbpf                  \
+        libcap                  \
+        libelf                  \
+        libffi                  \
+        libgcrypt               \
+        libgpg-error            \
+        libidn2                 \
+        libksba                 \
+        libldap                 \
+        libmakepkg-dropins      \
+        libnftnl                \
+        libnghttp2              \
+        libnghttp3              \
+        libnl                   \
+        libp11-kit              \
+        libpcap                 \
+        extra/libsysprof-capture     \
+        libtirpc                \
+        libusb                  \
+        libxcrypt               \
+        libxml2                 \
+        linux-api-headers       \
+        lld			\
+        llvm			\
+        ncurses                 \
+        nettle                  \
+        openssl                 \
+        p11-kit                 \
+        pacman                  \
+        pacman-mirrorlist       \
+        pahole			\
+        pam                     \
+        pambase                 \
+        pciutils                \
+        pcre2                   \
+        pinentry                \
+        python			\
+        python-sphinx		\
+        rust			\
+        rust-bindgen		\
+        rust-src		\
+        readline                \
+	sbsigntools		\
+        shadow                  \
+        sqlite                  \
+        systemd                 \
+        systemd-libs            \
+        systemd-sysvcompat      \
+        texlive-latexextra      \
+        tzdata                  \
+        util-linux              \
+        util-linux-libs         \
+        xz
+WORKDIR /github/workspace
+CMD ["/bin/bash"]

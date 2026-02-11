@@ -1,0 +1,51 @@
+name: Build (ubuntu)
+
+on:
+    workflow_dispatch:
+    push:
+
+jobs:
+    build-deb:
+        runs-on: ubuntu-latest
+
+        container:
+            image: ubuntu:latest
+            volumes:
+                - /usr:/usr-host
+                - /opt:/opt-host
+            options: --privileged
+
+        steps:
+            - name: Maximize build space
+              run: |
+                  df -h
+                  rm -rf /usr-host/share/dotnet
+                  rm -rf /usr-host/share/swift
+                  rm -rf /usr-host/share/java
+                  rm -rf /usr-host/local/lib/android
+                  rm -rf /opt-host/ghc
+                  rm -rf /opt-host/hostedtoolcache
+                  rm -rf /opt-host/az
+                  df -h
+            - name: Checkout sources
+              uses: actions/checkout@v4
+
+            - name: Dependencies
+              run: |
+                  export DEBIAN_FRONTEND=noninteractive
+                  apt-get update -y
+                  apt-get install -y build-essential devscripts debhelper dh-python asciidoc-base bc bison cpio dwarves flex kmod libdw-dev libiberty-dev libnuma-dev  libslang2-dev lz4 rsync wget xmlto git
+                  apt-get install -y libunwind-dev libpfm4-dev coccinelle openjdk-17-jdk libcapstone-dev libbabeltrace-dev systemtap-sdt-dev libzstd-dev dwarves zstd libbfd-dev libperl-dev libssl-dev
+            - name: Get sources
+              run: |
+                  wget https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.18.7.tar.xz
+                  wget https://github.com/BoukeHaarsma23/linux-ogc/releases/download/v6.18.7-ogc2/monolithic.patch
+                  tar -xf linux-6.18.7.tar.xz
+                  cd linux-6.18.7
+                  cp ../config .config
+                  patch -Np1 < "../monolithic.patch"
+            - name: Build
+              run: |
+                  cd linux-6.18.7
+                  make olddefconfig
+                  fakeroot make -j$(nproc) bindeb-pkg

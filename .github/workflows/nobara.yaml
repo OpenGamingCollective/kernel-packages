@@ -1,0 +1,43 @@
+name: Build (Nobara)
+
+on:
+    workflow_dispatch:
+    push:
+
+jobs:
+    build-rpm:
+        runs-on: ubuntu-latest
+
+        container:
+            image: fedora:latest
+            volumes:
+                - /usr:/usr-host
+                - /opt:/opt-host
+            options: --privileged
+
+        steps:
+            - name: Maximize build space
+              run: |
+                  df -h
+                  rm -rf /usr-host/share/dotnet
+                  rm -rf /usr-host/share/swift
+                  rm -rf /usr-host/share/java
+                  rm -rf /usr-host/local/lib/android
+                  rm -rf /opt-host/ghc
+                  rm -rf /opt-host/hostedtoolcache
+                  rm -rf /opt-host/az
+                  df -h
+            - name: Checkout sources
+              uses: actions/checkout@v4
+
+            - name: Dependencies
+              run: |
+                  dnf -y builddep nobara/kernel.spec
+            - name: build
+              run: |
+                  TOPDIR="$(pwd)/rpmbuild"
+
+                  mkdir -p "$TOPDIR"/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
+                  cp nobara/* $TOPDIR/SOURCES
+
+                  rpmbuild --define "_topdir $TOPDIR" -ba ./nobara/kernel.spec

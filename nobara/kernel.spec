@@ -1,10 +1,7 @@
-### A port of linux-cachyos (https://github.com/CachyOS/linux-cachyos/tree/master/linux-cachyos) for the Fedora operating system.
-# https://github.com/CachyOS/linux-cachyos
+### Based on linux-cachyos (https://github.com/CachyOS/linux-cachyos/tree/master/linux-cachyos) for the Fedora operating system.
 ### The authors of linux-cachyos patchset:
 # Peter Jung ptr1337 <admin@ptr1337.dev>
 # Piotr Gorski sirlucjan <piotrgorski@cachyos.org>
-### The author of BORE-EEVDF Scheduler:
-# Masahito Suzuki <firelzrd@gmail.com>
 ### The port maintainer for Fedora:
 # bieszczaders <zbyszek@linux.pl>
 # https://copr.fedorainfracloud.org/coprs/bieszczaders/
@@ -37,8 +34,8 @@
 Name: kernel
 Summary: The Linux Kernel with Open Gaming Collective (OGC) patches
 
-%define _basekver 6.18
-%define _stablekver 7
+%define _basekver 6.19
+%define _stablekver 6
 %define _rcver rc7
 %if %{_stablekver} == 0
 %define _tarkver %{_basekver}
@@ -69,7 +66,7 @@ Release:%{customver}.nobara%{?dist}
 
 License: GPLv2 and Redistributable, no modifications permitted
 Group: System Environment/Kernel
-Vendor: The Linux Community and CachyOS maintainer(s)
+Vendor: The Linux Community and OGC maintainer(s)
 URL: https://opengamingcollective.org
 Source0: https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-%{_tarkver}.tar.xz
 Source1: config
@@ -80,7 +77,7 @@ Source2: kvm_stat.logrotate
 ExcludeArch:    %{ix86}
 
 # Stable patches
-Patch0: https://github.com/OpenGamingCollective/linux/releases/download/v6.18.7-ogc2/monolithic.patch
+Patch0: https://github.com/OpenGamingCollective/linux/releases/download/v6.19.6-ogc1/monolithic.patch
 
 %define __spec_install_post /usr/lib/rpm/brp-compress || :
 %define debug_package %{nil}
@@ -152,10 +149,6 @@ BuildRequires: zlib-devel binutils-devel newt-devel perl(ExtUtils::Embed) bison 
 Requires: %{name}-core-%{rpmver} = %{kverstr}
 Requires: %{name}-modules-%{rpmver} = %{kverstr}
 Provides: %{name}%{_basekver} = %{rpmver}
-Provides: kernel-bore-eevdf >= 6.5.7-%{customver}
-Provides: kernel-bore >= 6.5.7-%{customver}
-Obsoletes: kernel-bore-eevdf <= 6.5.10-%{customver}
-Obsoletes: kernel-bore <= 6.5.10-%{customver}
 Provides: kernel-uki-vert = %{rpmver}
 Obsoletes: kernel <= %{rpmverobsolete}
 # v4l2loopback module is provided by cachy-base-all patch
@@ -185,10 +178,6 @@ Requires: linux-firmware
 Requires: /usr/bin/kernel-install
 Requires: kernel-modules-%{rpmver} = %{kverstr}
 Supplements: %{name} = %{rpmver}
-Provides: kernel-bore-eevdf-core >= 6.5.7-%{customver}
-Provides: kernel-bore-core >= 6.5.7-%{customver}
-Obsoletes: kernel-bore-eevdf-core <= 6.5.10-%{customver}
-Obsoletes: kernel-bore-core <= 6.5.10-%{customver}
 %description core
 The kernel package contains the Linux kernel (vmlinuz), the core of any
 Linux operating system.  The kernel handles the basic functions
@@ -211,10 +200,6 @@ Provides: kernel-modules-extra-uname-r = %{kverstr}
 Provides: kernel-modules-%{rpmver} = %{kverstr}
 Provides: %{name}-modules-%{rpmver} = %{kverstr}
 Supplements: %{name} = %{rpmver}
-Provides: kernel-bore-eevdf-modules >= 6.5.7-%{customver}
-Provides: kernel-bore-modules >= 6.5.7-%{customver}
-Obsoletes: kernel-bore-eevdf-modules <= 6.5.10-%{customver}
-Obsoletes: kernel-bore-modules <= 6.5.10-%{customver}
 # kmod needed for depmod command in %%post
 Requires: kmod
 %description modules
@@ -229,10 +214,6 @@ Provides: glibc-kernheaders = 3.0-46
 Provides: kernel-headers%{_isa} = %{kverstr}
 Obsoletes: kernel-headers < %{kverstr}
 Obsoletes: glibc-kernheaders < 3.0-46
-Obsoletes: kernel-bore-eevdf-headers <= 6.5.10-%{customver}
-Obsoletes: kernel-bore-headers <= 6.5.10-%{customver}
-Provides: kernel-bore-eevdf-headers >= 6.5.7-%{customver}
-Provides: kernel-bore-headers >= 6.5.7-%{customver}
 %description headers
 Kernel-headers includes the C header files that specify the interface
 between the Linux kernel and userspace libraries and programs.  The
@@ -267,10 +248,6 @@ Provides: kernel-devel%{_isa} = %{rpmver}
 Provides: kernel-devel-%{rpmver} = %{kverstr}
 Provides: %{name}-devel-%{rpmver} = %{kverstr}
 Provides: %{name}%{_basekver}-devel = %{rpmver}
-Provides: kernel-bore-eevdf-devel >= 6.5.7-%{customver}
-Provides: kernel-bore-devel >= 6.5.7-%{customver}
-Obsoletes: kernel-bore-eevdf-devel <= 6.5.10-%{customver}
-Obsoletes: kernel-bore-devel <= 6.5.10-%{customver}
 %description devel
 This package provides kernel headers and makefiles sufficient to build modules
 against the %{?flavor:%{flavor}} kernel package.
@@ -281,10 +258,6 @@ Requires: %{name}-devel = %{rpmver},
 Requires: %{name}-core = %{rpmver}
 Provides: kernel-devel-matched = %{rpmver}
 Provides: kernel-devel-matched%{_isa} = %{rpmver}
-Provides: kernel-bore-eevdf-devel-matched >= 6.5.7-%{customver}
-Provides: kernel-bore-devel-matched >= 6.5.7-%{customver}
-Obsoletes: kernel-bore-eevdf-devel-matched <= 6.5.10-%{customver}
-Obsoletes: kernel-bore-devel-matched <= 6.5.10-%{customver}
 %description devel-matched
 This meta package is used to install matching core and devel packages for a given %{?flavor:%{flavor}} kernel.
 
@@ -386,7 +359,7 @@ scripts/config --set-str BUILD_SALT "%{kverstr}"
 make %{?_smp_mflags} %{?llvm_build_env_vars} EXTRAVERSION=-%{krelstr} olddefconfig
 
 # Save configuration for later reuse
-cat .config > config-linux-bore
+cat .config > config-linux-ogc
 
 %build
 make %{?_smp_mflags} %{?llvm_build_env_vars} EXTRAVERSION=-%{krelstr}

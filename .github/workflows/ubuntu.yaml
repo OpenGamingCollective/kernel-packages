@@ -40,14 +40,14 @@ jobs:
                   apt-get install -y libunwind-dev libpfm4-dev coccinelle openjdk-17-jdk libcapstone-dev libbabeltrace-dev systemtap-sdt-dev libzstd-dev dwarves zstd libbfd-dev libperl-dev libssl-dev
             - name: Get sources
               run: |
-                  wget https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.18.7.tar.xz
-                  wget https://github.com/OpenGamingCollective/linux/releases/download/v6.18.7-ogc2/monolithic.patch
-                  tar -xf linux-6.18.7.tar.xz
-                  cd linux-6.18.7
+                  wget https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.19.6.tar.xz
+                  wget https://github.com/OpenGamingCollective/linux/releases/download/v6.19.6-ogc1/monolithic.patch
+                  tar -xf linux-6.19.6.tar.xz
+                  cd linux-6.19.6
                   cp ../config .config
                   patch -Np1 < "../monolithic.patch"
             - name: Build
               run: |
-                  cd linux-6.18.7
+                  cd linux-6.19.6
                   make olddefconfig
                   fakeroot make -j$(nproc) bindeb-pkg

@@ -2,9 +2,22 @@ name: Build (ubuntu)
 
 on:
     workflow_dispatch:
+        inputs:
+            version:
+                description: 'Enter a tagged OGC kernel version in the format <kernel-version>-ogc<rev>'
+                required: true
     push:
+        tags:
+            - 'v*'
 
-permissions: read-all
+permissions:
+    contents: read
+    packages: write
+    id-token: write
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
 
 jobs:
     build-deb:
@@ -29,6 +42,7 @@ jobs:
                   rm -rf /opt-host/hostedtoolcache
                   rm -rf /opt-host/az
                   df -h
+
             - name: Checkout sources
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
               with:
@@ -40,6 +54,7 @@ jobs:
                   apt-get update -y
                   apt-get install -y build-essential devscripts debhelper dh-python asciidoc-base bc bison cpio dwarves flex kmod libdw-dev libiberty-dev libnuma-dev  libslang2-dev lz4 rsync wget xmlto git
                   apt-get install -y libunwind-dev libpfm4-dev coccinelle openjdk-17-jdk libcapstone-dev libbabeltrace-dev systemtap-sdt-dev libzstd-dev dwarves zstd libbfd-dev libperl-dev libssl-dev
+
             - name: Get sources
               run: |
                   wget https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.19.6.tar.xz
@@ -48,8 +63,56 @@ jobs:
                   cd linux-6.19.6
                   cp ../config .config
                   patch -Np1 < "../monolithic.patch"
+
             - name: Build
               run: |
                   cd linux-6.19.6
                   make olddefconfig
                   fakeroot make -j$(nproc) bindeb-pkg
+
+            - name: Get OGC version
+              if: startsWith(github.ref, 'refs/tags/')
+              id: version
+              run: |
+                  TAG="${{ github.ref_name }}"
+                  echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+            - name: Setup ORAS
+              if: startsWith(github.ref, 'refs/tags/')
+              uses: oras-project/setup-oras@22ce207df3b08e061f537244349aac6ae1d214f6 # v1
+
+            - name: Setup Cosign
+              if: startsWith(github.ref, 'refs/tags/')
+              uses: sigstore/cosign-installer@ba7bc0a3fef59531c69a25acd34668d6d3fe6f22 # v4.1.0
+
+            - name: Login to ghcr.io
+              if: startsWith(github.ref, 'refs/tags/')
+              run: |
+                  echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u ${{ github.actor }} --password-stdin
+
+            - name: Push OCI artifact
+              if: startsWith(github.ref, 'refs/tags/')
+              run: |
+                  VERSION="${{ steps.version.outputs.version }}"
+                  REPO="ghcr.io/opengamingcollective/kernel-packages/ubuntu"
+                  cd $GITHUB_WORKSPACE
+                  oras push "${REPO}:${VERSION}" ./*.deb
+                  oras tag "${REPO}:${VERSION}" latest
+
+            - name: Sign artifacts
+              if: startsWith(github.ref, 'refs/tags/')
+              run: |
+                  VERSION="${{ steps.version.outputs.version }}"
+                  REPO="ghcr.io/opengamingcollective/kernel-packages/ubuntu"
+                  cosign sign --yes "${REPO}:${VERSION}"
+                  cosign sign --yes "${REPO}:latest"
+
+            - name: Verify signature
+              if: startsWith(github.ref, 'refs/tags/')
+              run: |
+                  VERSION="${{ steps.version.outputs.version }}"
+                  REPO="ghcr.io/opengamingcollective/kernel-packages/ubuntu"
+                  cosign verify \
+                    --certificate-identity-regexp=".*" \
+                    --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+                    "${REPO}:${VERSION}"

@@ -1,6 +1,6 @@
 # Security
 
-If you believe you have found a new security vulnerability in this repository, please report it to us as follows.
+If you believe you have found a new security vulnerability in this repository or in the OGC patchset, please report it to us as follows.
 
 ## Reporting Security Issues
 
@@ -22,3 +22,4 @@ If you believe you have found a new security vulnerability in this repository, p
 
 * We do not offer financial rewards. We are happy to acknowledge your research publicly when possible. 
 
+[The Linux Kernel security policy & reporting instructions can be found here.](https://docs.kernel.org/process/security-bugs.html)

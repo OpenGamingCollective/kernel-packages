@@ -2,9 +2,26 @@ name: Build (arch)
 
 on:
     workflow_dispatch:
+        inputs:
+            version:
+                description: 'Enter a tagged OGC kernel version in the format <kernel-version>-ogc<rev>'
+                required: true
     push:
+        tags:
+            - 'v*'
 
-permissions: read-all
+env:
+    OCI_REPO: ghcr.io/${{ github.repository }}/arch
+
+permissions:
+    contents: read
+    packages: write
+    id-token: write
+    attestations: write
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
 
 jobs:
     build-arch:
@@ -18,6 +35,12 @@ jobs:
             options: --privileged
 
         steps:
+            - name: Prepare environment
+              shell: bash
+              run: |
+                # Lowercase the image uri
+                echo "OCI_REPO=${OCI_REPO,,}" >> ${GITHUB_ENV}
+
             - name: Maximize build space
               run: |
                   df -h
@@ -29,6 +52,7 @@ jobs:
                   rm -rf /opt-host/hostedtoolcache
                   rm -rf /opt-host/az
                   df -h
+
             - name: Checkout sources
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
               with:
@@ -49,7 +73,7 @@ jobs:
 
             - name: Install dependencies
               run: |
-                  pacman -Syu --noconfirm bc cpio gettext libelf pahole perl python rust rust-bindgen rust-src tar xz graphviz imagemagick python-sphinx python-yaml texlive-latexextra
+                  pacman -Syu --noconfirm bc cpio gettext jq libelf pahole perl python rust rust-bindgen rust-src tar xz graphviz imagemagick python-sphinx python-yaml texlive-latexextra
 
             - name: Build linux package
               id: build-kernel-package
@@ -59,3 +83,64 @@ jobs:
                   . /home/build/linux/arch/PKGBUILD
                   full_version=${pkgver}-${pkgrel}
                   echo "full_version=$full_version" >> "$GITHUB_OUTPUT"
+
+            - name: Get OGC version
+              if: startsWith(github.ref, 'refs/tags/')
+              id: version
+              run: |
+                  TAG="${{ github.ref_name }}"
+                  echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+            - name: Setup ORAS
+              if: startsWith(github.ref, 'refs/tags/')
+              uses: oras-project/setup-oras@22ce207df3b08e061f537244349aac6ae1d214f6 # v1
+
+            - name: Setup Cosign
+              if: startsWith(github.ref, 'refs/tags/')
+              uses: sigstore/cosign-installer@ba7bc0a3fef59531c69a25acd34668d6d3fe6f22 # v4.1.0
+
+            - name: Login to ghcr.io
+              if: startsWith(github.ref, 'refs/tags/')
+              run: |
+                  echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u ${{ github.actor }} --password-stdin
+
+            - name: Push OCI artifact
+              if: startsWith(github.ref, 'refs/tags/')
+              id: push
+              run: |
+                  VERSION="${{ steps.version.outputs.version }}"
+                  REPO="${{ env.OCI_REPO }}"
+                  cd /home/build/linux/arch
+                  DIGEST=$(oras push --format json "${REPO}:${VERSION}" ./*.pkg.tar.zst | jq -r '.digest')
+                  if [ -z "$DIGEST" ]; then
+                      echo "::error::Failed to capture digest from oras push"
+                      exit 1
+                  fi
+                  oras tag "${REPO}:${VERSION}" latest
+                  echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+
+            - name: Attest build provenance
+              if: startsWith(github.ref, 'refs/tags/')
+              uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4
+              with:
+                  subject-name: ${{ env.OCI_REPO }}
+                  subject-digest: ${{ steps.push.outputs.digest }}
+                  push-to-registry: true
+
+            - name: Sign artifacts
+              if: startsWith(github.ref, 'refs/tags/')
+              run: |
+                  VERSION="${{ steps.version.outputs.version }}"
+                  REPO="${{ env.OCI_REPO }}"
+                  cosign sign --yes "${REPO}:${VERSION}"
+                  cosign sign --yes "${REPO}:latest"
+
+            - name: Verify signature
+              if: startsWith(github.ref, 'refs/tags/')
+              run: |
+                  VERSION="${{ steps.version.outputs.version }}"
+                  REPO="${{ env.OCI_REPO }}"
+                  cosign verify \
+                    --certificate-identity-regexp=".*" \
+                    --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+                    "${REPO}:${VERSION}"

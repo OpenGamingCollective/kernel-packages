@@ -65,6 +65,13 @@ jobs:
                   cp -vR * /home/build/linux
                   chown -vR build /home/build/linux
 
+            - name: Restore ccache
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: .ccache
+                  key: ccache-arch-${{ hashFiles('config') }}
+                  restore-keys: ccache-arch-
+
             - name: Set up pacman keyring
               run: |
                   pacman-key --init
@@ -73,13 +80,21 @@ jobs:
 
             - name: Install dependencies
               run: |
-                  pacman -Syu --noconfirm bc cpio gettext jq libelf pahole perl python rust rust-bindgen rust-src tar xz graphviz imagemagick python-sphinx python-yaml texlive-latexextra
+                  pacman -Syu --noconfirm bc ccache cpio gettext libelf pahole perl python rust rust-bindgen rust-src tar xz graphviz imagemagick python-sphinx python-yaml texlive-latexextra
+
+            - name: Configure ccache
+              run: |
+                  mkdir -p $GITHUB_WORKSPACE/.ccache
+                  chown -R build $GITHUB_WORKSPACE/.ccache
+                  export CCACHE_DIR=$GITHUB_WORKSPACE/.ccache
+                  ccache -M 3G
+                  ccache -z
 
             - name: Build linux package
               id: build-kernel-package
               shell: bash
               run: |
-                  su build bash -c "cd /home/build/linux/arch && MAKEFLAGS=-j$(nproc) makepkg --skippgpcheck"
+                  su build bash -c "export CC='ccache gcc' CCACHE_DIR=$GITHUB_WORKSPACE/.ccache CCACHE_BASEDIR=/home/build/linux/arch/src/linux-6.19.6 && cd /home/build/linux/arch && MAKEFLAGS=-j$(nproc) makepkg --skippgpcheck"
                   . /home/build/linux/arch/PKGBUILD
                   full_version=${pkgver}-${pkgrel}
                   echo "full_version=$full_version" >> "$GITHUB_OUTPUT"
@@ -144,3 +159,15 @@ jobs:
                     --certificate-identity-regexp=".*" \
                     --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
                     "${REPO}:${VERSION}"
+
+            - name: ccache statistics
+              if: success() || failure()
+              run: |
+                  CCACHE_DIR=$GITHUB_WORKSPACE/.ccache ccache -s
+
+            - name: Save ccache
+              if: startsWith(github.ref, 'refs/tags/')
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: .ccache
+                  key: ccache-arch-${{ hashFiles('config') }}

@@ -58,6 +58,13 @@ jobs:
               with:
                   persist-credentials: false
 
+            - name: Restore ccache
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: .ccache
+                  key: ccache-ubuntu-${{ hashFiles('config') }}
+                  restore-keys: ccache-ubuntu-
+
             - name: Dependencies
               run: |
                   export DEBIAN_FRONTEND=noninteractive
@@ -76,6 +83,9 @@ jobs:
 
             - name: Build
               run: |
+                  export CC="ccache gcc"
+                  export CCACHE_DIR=$GITHUB_WORKSPACE/.ccache
+                  export CCACHE_BASEDIR=$GITHUB_WORKSPACE/linux-6.19.6
                   cd linux-6.19.6
                   make olddefconfig
                   fakeroot make -j$(nproc) bindeb-pkg
@@ -140,3 +150,15 @@ jobs:
                     --certificate-identity-regexp=".*" \
                     --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
                     "${REPO}:${VERSION}"
+
+            - name: ccache statistics
+              if: success() || failure()
+              run: |
+                  CCACHE_DIR=$GITHUB_WORKSPACE/.ccache ccache -s
+
+            - name: Save ccache
+              if: startsWith(github.ref, 'refs/tags/')
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: .ccache
+                  key: ccache-ubuntu-${{ hashFiles('config') }}

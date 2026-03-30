@@ -134,7 +134,7 @@ jobs:
                   cd linux-${{ steps.version.outputs.tar_kver }}
                   make x86_64_defconfig
 
-            - name: Configure kernel
+            - name: Merge kernel configuration files
               uses: OpenGamingCollective/kernel-configurator@5b4abc58a2edf89941180dbbe33b26415db23b0b # v1.0.1
               with:
                   config: linux-${{ steps.version.outputs.tar_kver }}/.config
@@ -145,6 +145,12 @@ jobs:
                   unset: |
                       config/ogc.config.unset
                       fedora/config.unset
+
+            - name: Validate combined kernel config file
+              shell: bash
+              run: |
+                  cd linux-${{ steps.version.outputs.tar_kver }}
+                  make olddefconfig
 
             - name: Upload kernel config
               uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0

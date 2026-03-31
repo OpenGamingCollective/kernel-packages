@@ -128,23 +128,17 @@ jobs:
                   cd linux-${TAR_KVER}
                   patch -Np1 < ../monolithic.patch
 
-            - name: Generate default config
-              shell: bash
-              run: |
-                  cd linux-${{ steps.version.outputs.tar_kver }}
-                  make x86_64_defconfig
-
             - name: Merge kernel configuration files
               uses: OpenGamingCollective/kernel-configurator@5b4abc58a2edf89941180dbbe33b26415db23b0b # v1.0.1
               with:
-                  config: linux-${{ steps.version.outputs.tar_kver }}/.config
+                  config: fedora/config
                   set: |
-                      config/generic.config.set
+                      config/fedora.config.set
                       config/ogc.config.set
-                      fedora/config.set
                   unset: |
+                      config/fedora.config.unset
                       config/ogc.config.unset
-                      fedora/config.unset
+                  output: linux-${{ steps.version.outputs.tar_kver }}/.config
 
             - name: Validate combined kernel config file
               shell: bash

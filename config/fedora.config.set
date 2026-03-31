@@ -1,4 +1,4 @@
-# Fedora
+# OGC config layered ontop of the default Fedora config
 CONFIG_DEFAULT_SECURITY_SELINUX=y
 CONFIG_SECURITY_APPARMOR=y
 CONFIG_SECURITY_IPE=y

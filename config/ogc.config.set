@@ -1,3 +1,5 @@
+# Globally required OGC options layered on top of all configs
+
 # Gaming
 CONFIG_NTSYNC=m
 

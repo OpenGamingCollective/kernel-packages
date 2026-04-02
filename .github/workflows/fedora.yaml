@@ -97,7 +97,45 @@ jobs:
             - name: Setup ORAS
               uses: oras-project/setup-oras@22ce207df3b08e061f537244349aac6ae1d214f6 # v1
 
+            - name: Compute content hash
+              id: content-hash
+              shell: bash
+              run: |
+                  HASH=$(
+                    {
+                      echo "ogc_version=${{ steps.version.outputs.ogc_version }}"
+                      echo "fedora_version=${{ matrix.fedora_version }}"
+                      sha256sum \
+                        fedora/kernel.spec \
+                        fedora/config \
+                        fedora/kvm_stat.logrotate \
+                        config/fedora.config.set \
+                        config/ogc.config.set \
+                        config/fedora.config.unset \
+                        config/ogc.config.unset \
+                        .github/workflows/fedora.yaml
+                    } | sha256sum | cut -d' ' -f1
+                  )
+                  SHORT_HASH="${HASH:0:12}"
+                  echo "hash=$SHORT_HASH" >> "$GITHUB_OUTPUT"
+                  echo "Content hash: $SHORT_HASH"
+
+            - name: Check for existing build
+              id: check-existing
+              shell: bash
+              run: |
+                  REPO="${OCI_REPO,,}"
+                  TAG="sha-${{ steps.content-hash.outputs.hash }}-fc${{ matrix.fedora_version }}"
+                  if oras manifest fetch "${REPO}:${TAG}" > /dev/null 2>&1; then
+                    echo "exists=true" >> "$GITHUB_OUTPUT"
+                    echo "::notice::Skipping build, artifact with content hash ${TAG} already exists"
+                  else
+                    echo "exists=false" >> "$GITHUB_OUTPUT"
+                    echo "No existing artifact for ${TAG}, proceeding with build"
+                  fi
+
             - name: Get build number
+              if: steps.check-existing.outputs.exists != 'true'
               id: buildnum
               shell: bash
               run: |
@@ -110,6 +148,7 @@ jobs:
                   echo "Build number: $BUILD_NUM"
 
             - name: Substitute versions
+              if: steps.check-existing.outputs.exists != 'true'
               shell: bash
               run: |
                   sed -i \
@@ -120,11 +159,13 @@ jobs:
                     fedora/kernel.spec
 
             - name: Dependencies
+              if: steps.check-existing.outputs.exists != 'true'
               run: |
                   dnf -y builddep fedora/kernel.spec
                   dnf -y install gnupg2 jq sed wget
 
             - name: Download and verify kernel source
+              if: steps.check-existing.outputs.exists != 'true'
               shell: bash
               run: |
                   TAR_KVER="${{ steps.version.outputs.tar_kver }}"
@@ -149,6 +190,7 @@ jobs:
                   patch -Np1 < ../monolithic.patch
 
             - name: Merge kernel configuration files
+              if: steps.check-existing.outputs.exists != 'true'
               uses: OpenGamingCollective/kernel-configurator@5b4abc58a2edf89941180dbbe33b26415db23b0b # v1.0.1
               with:
                   config: fedora/config
@@ -161,12 +203,14 @@ jobs:
                   output: linux-${{ steps.version.outputs.tar_kver }}/.config
 
             - name: Validate combined kernel config file
+              if: steps.check-existing.outputs.exists != 'true'
               shell: bash
               run: |
                   cd linux-${{ steps.version.outputs.tar_kver }}
                   make olddefconfig
 
             - name: Build
+              if: steps.check-existing.outputs.exists != 'true'
               run: |
                   TAR_KVER="${{ steps.version.outputs.tar_kver }}"
                   TOPDIR="$(pwd)/rpmbuild"
@@ -180,16 +224,16 @@ jobs:
                   rpmbuild --define "_topdir $TOPDIR" -ba ./fedora/kernel.spec
 
             - name: Setup Cosign
-              if: startsWith(github.ref, 'refs/tags/')
+              if: startsWith(github.ref, 'refs/tags/') && steps.check-existing.outputs.exists != 'true'
               uses: sigstore/cosign-installer@ba7bc0a3fef59531c69a25acd34668d6d3fe6f22 # v4.1.0
 
             - name: Login to ghcr.io
-              if: startsWith(github.ref, 'refs/tags/')
+              if: startsWith(github.ref, 'refs/tags/') && steps.check-existing.outputs.exists != 'true'
               run: |
                   echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u ${{ github.actor }} --password-stdin
 
             - name: Push OCI artifact
-              if: startsWith(github.ref, 'refs/tags/')
+              if: startsWith(github.ref, 'refs/tags/') && steps.check-existing.outputs.exists != 'true'
               id: push
               run: |
                   VERSION="${{ steps.version.outputs.ogc_version }}.${{ steps.buildnum.outputs.build_num }}"
@@ -207,8 +251,16 @@ jobs:
                   oras tag "${REPO}:${VERSION}-fc${{ matrix.fedora_version }}" latest-fc${{ matrix.fedora_version }}
                   echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
 
+            - name: Tag with content hash
+              if: startsWith(github.ref, 'refs/tags/') && steps.check-existing.outputs.exists != 'true'
+              run: |
+                  REPO="${{ env.OCI_REPO }}"
+                  VERSION="${{ steps.version.outputs.ogc_version }}.${{ steps.buildnum.outputs.build_num }}"
+                  oras tag "${REPO}:${VERSION}-fc${{ matrix.fedora_version }}" \
+                    "sha-${{ steps.content-hash.outputs.hash }}-fc${{ matrix.fedora_version }}"
+
             - name: Sign artifacts
-              if: startsWith(github.ref, 'refs/tags/')
+              if: startsWith(github.ref, 'refs/tags/') && steps.check-existing.outputs.exists != 'true'
               run: |
                   VERSION="${{ steps.version.outputs.ogc_version }}.${{ steps.buildnum.outputs.build_num }}"
                   REPO="${{ env.OCI_REPO }}"
@@ -216,7 +268,7 @@ jobs:
                   cosign sign --yes "${REPO}:latest-fc${{ matrix.fedora_version }}"
 
             - name: Attest build provenance
-              if: startsWith(github.ref, 'refs/tags/')
+              if: startsWith(github.ref, 'refs/tags/') && steps.check-existing.outputs.exists != 'true'
               uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4
               with:
                   subject-name: ${{ env.OCI_REPO }}
@@ -224,7 +276,7 @@ jobs:
                   push-to-registry: true
 
             - name: Verify signature
-              if: startsWith(github.ref, 'refs/tags/')
+              if: startsWith(github.ref, 'refs/tags/') && steps.check-existing.outputs.exists != 'true'
               run: |
                   VERSION="${{ steps.version.outputs.ogc_version }}.${{ steps.buildnum.outputs.build_num }}"
                   REPO="${{ env.OCI_REPO }}"

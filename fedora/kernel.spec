@@ -46,7 +46,7 @@ Version: %{_basekver}.%{_stablekver}
 
 %define ogcver @@OGCVER@@
 %define buildnum @@BUILDNUM@@
-Release: ogc%{ogcver}.%{buildnum}%{?dist}
+Release: ogc%{ogcver}.%{buildnum}
 
 # Define rawhide fedora version
 %define _rawhidever 44
@@ -809,7 +809,7 @@ if [ "$HARDLINK" != "no" -a -x /usr/bin/hardlink -a ! -e /run/ostree-booted ]
 then
 (cd /usr/src/kernels/%{kverstr} &&
  /usr/bin/find . -type f | while read f; do
-   hardlink -c /usr/src/kernels/*%{?dist}.*/$f $f 2>&1 >/dev/null
+   hardlink -c /usr/src/kernels/*/$f $f 2>&1 >/dev/null
  done)
 fi
 

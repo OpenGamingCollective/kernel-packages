@@ -230,7 +230,7 @@ jobs:
                   # Copy patched config
                   cp linux-${TAR_KVER}/.config /home/build/linux/arch/config
                   chown -R build /home/build/linux
-                  su build bash -c "cd /home/build/linux/arch && MAKEFLAGS=-j$(nproc) makepkg --skippgpcheck --skipchecksums --skipinteg"
+                  su build /usr/bin/bash -c "cd /home/build/linux/arch && MAKEFLAGS=-j$(nproc) makepkg --skippgpcheck --skipchecksums --skipinteg"
                   . /home/build/linux/arch/PKGBUILD
                   full_version=${pkgver}-${pkgrel}
                   echo "full_version=$full_version" >> "$GITHUB_OUTPUT"

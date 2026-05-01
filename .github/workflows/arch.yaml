@@ -184,6 +184,7 @@ jobs:
                   wget https://cdn.kernel.org/pub/linux/kernel/v${MAJOR_VERSION}/linux-${TAR_KVER}.tar.sign
                   wget https://github.com/OpenGamingCollective/linux/releases/download/v${OGC_VERSION}/monolithic.patch
                   wget https://github.com/OpenGamingCollective/linux/releases/download/v${OGC_VERSION}/monolithic.patch.sig
+
                   # Import kernel.org signing keys (Linus Torvalds & Greg Kroah-Hartman)
                   gpg --keyserver hkps://keyserver.ubuntu.com --recv-keys \
                     ABAF11C65A2970B130ABE3C479BE3E4300411886 \
@@ -219,8 +220,8 @@ jobs:
                   make olddefconfig
 
             - name: Build linux package
-              if: steps.check-existing.outputs.exists != 'true'
               id: build-kernel-package
+              if: steps.check-existing.outputs.exists != 'true'
               shell: bash
               run: |
                   TAR_KVER="${{ steps.version.outputs.tar_kver }}"
@@ -230,7 +231,8 @@ jobs:
                   # Copy patched config
                   cp linux-${TAR_KVER}/.config /home/build/linux/arch/config
                   chown -R build /home/build/linux
-                  su build /usr/bin/bash -c "cd /home/build/linux/arch && MAKEFLAGS=-j$(nproc) makepkg --skippgpcheck --skipchecksums --skipinteg"
+                  sudo -u build bash -c "cd /home/build/linux/arch && MAKEFLAGS=-j$(nproc) makepkg --skippgpcheck --skipchecksums --skipinteg"
+
                   . /home/build/linux/arch/PKGBUILD
                   full_version=${pkgver}-${pkgrel}
                   echo "full_version=$full_version" >> "$GITHUB_OUTPUT"

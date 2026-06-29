@@ -352,9 +352,9 @@ cat .config > config-linux-ogc
 %build
 make %{?_smp_mflags} %{?llvm_build_env_vars} EXTRAVERSION=-%{krelstr}
 %if %{llvm_kbuild}
-clang ./scripts/sign-file.c -o ./scripts/sign-file -lssl -lcrypto
+clang -Iinclude -Iusr/include ./scripts/sign-file.c -o ./scripts/sign-file -lssl -lcrypto
 %else
-gcc ./scripts/sign-file.c -o ./scripts/sign-file -lssl -lcrypto
+gcc -Iinclude -Iusr/include ./scripts/sign-file.c -o ./scripts/sign-file -lssl -lcrypto
 %endif
 
 # non-kernel userspace packages -- disable LTO

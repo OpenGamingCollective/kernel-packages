@@ -966,6 +966,7 @@ fi
 %{_mandir}/man1/rv-mon-wwnr.1.gz
 %{_mandir}/man1/rv-mon.1.gz
 %{_mandir}/man1/rv-mon-sched.1.gz
+%{_mandir}/man1/rv-mon-stall.1.gz
 %{_mandir}/man1/rv.1.gz
 
 %files

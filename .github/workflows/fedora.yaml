@@ -164,6 +164,23 @@ jobs:
                   dnf -y builddep fedora/kernel.spec
                   dnf -y install gnupg2 jq sed wget
 
+            - name: Build dwarves from source
+              if: steps.check-existing.outputs.exists != 'true'
+              shell: bash
+              run: |
+                  # Fedora ships pahole 1.30, which breaks sched_ext. Fixed in 1.31.
+                  dnf -y install cmake make gcc elfutils-devel zlib-devel
+                  wget https://fedorapeople.org/~acme/dwarves/dwarves-1.31.tar.xz
+                  echo "0a7f255ccacf8cc7f8cd119099eb327179b4b3c67cb015af646af6d0cb03054d  dwarves-1.31.tar.xz" | sha256sum -c
+                  tar -xf dwarves-1.31.tar.xz
+                  cmake -B dwarves-1.31/build -S dwarves-1.31 \
+                    -DCMAKE_BUILD_TYPE=Release \
+                    -DCMAKE_INSTALL_PREFIX=/usr \
+                    -D__LIB=lib
+                  make -C dwarves-1.31/build -j"$(nproc)" install
+                  command -v pahole
+                  pahole --version
+
             - name: Download and verify kernel source
               if: steps.check-existing.outputs.exists != 'true'
               shell: bash

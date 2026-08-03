@@ -97,6 +97,32 @@ jobs:
             - name: Setup ORAS
               uses: oras-project/setup-oras@22ce207df3b08e061f537244349aac6ae1d214f6 # v1
 
+            - name: Fetch Fedora kernel config
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  CACHE="${GITHUB_WORKSPACE}/pkgcache"
+                  dnf -y install dnf5-plugins cpio
+                  mkdir -p "$CACHE"
+                  dnf download --destdir "$CACHE" kernel-core
+                  RPM=$(find "$CACHE" -maxdepth 1 -name 'kernel-core-*.rpm' -type f)
+                  if [ "$(printf '%s\n' "$RPM" | wc -l)" -ne 1 ] || [ -z "$RPM" ]; then
+                    echo "::error::Expected exactly one kernel-core package, found: ${RPM:-none}"
+                    exit 1
+                  fi
+                  echo "::notice::Base config from Fedora $(basename "$RPM")"
+                  CFG=$(rpm -qlp "$RPM" | grep -E '^/lib/modules/[^/]+/config$' || true)
+                  if [ "$(printf '%s\n' "$CFG" | wc -l)" -ne 1 ] || [ -z "$CFG" ]; then
+                    echo "::error::Expected exactly one kernel config in $RPM, found: ${CFG:-none}"
+                    exit 1
+                  fi
+                  rpm2cpio "$RPM" | cpio -i --to-stdout ".${CFG}" > distro-base.config
+                  if [ ! -s distro-base.config ]; then
+                    echo "::error::Extracted Fedora kernel config is empty"
+                    exit 1
+                  fi
+                  rm -rf "$CACHE"
+
             - name: Compute content hash
               id: content-hash
               shell: bash
@@ -107,7 +133,7 @@ jobs:
                       echo "fedora_version=${{ matrix.fedora_version }}"
                       sha256sum \
                         fedora/kernel.spec \
-                        fedora/config \
+                        distro-base.config \
                         fedora/kvm_stat.logrotate \
                         config/fedora.config.set \
                         config/ogc.config.set \
@@ -210,7 +236,7 @@ jobs:
               if: steps.check-existing.outputs.exists != 'true'
               uses: OpenGamingCollective/kernel-configurator@5b4abc58a2edf89941180dbbe33b26415db23b0b # v1.0.1
               with:
-                  config: fedora/config
+                  config: distro-base.config
                   set: |
                       config/fedora.config.set
                       config/ogc.config.set

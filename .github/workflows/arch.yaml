@@ -103,6 +103,31 @@ jobs:
             - name: Setup ORAS
               uses: oras-project/setup-oras@22ce207df3b08e061f537244349aac6ae1d214f6 # v1
 
+            - name: Fetch Arch kernel config
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  CACHE="${GITHUB_WORKSPACE}/pkgcache"
+                  PKGVER=$(pacman -Si linux-headers | awk -F': ' '/^Version/ {print $2; exit}')
+                  mkdir -p "$CACHE"
+                  pacman -Sw --noconfirm --cachedir "$CACHE" linux-headers
+                  PKG=$(find "$CACHE" -maxdepth 1 -name 'linux-headers-*.pkg.tar.zst' -type f)
+                  if [ "$(printf '%s\n' "$PKG" | wc -l)" -ne 1 ] || [ -z "$PKG" ]; then
+                    echo "::error::Expected exactly one linux-headers package, found: ${PKG:-none}"
+                    exit 1
+                  fi
+                  CFG=$(tar --zstd -tf "$PKG" | grep -E '^usr/lib/modules/[^/]+/build/\.config$' || true)
+                  if [ "$(printf '%s\n' "$CFG" | wc -l)" -ne 1 ] || [ -z "$CFG" ]; then
+                    echo "::error::Expected exactly one kernel config in $PKG, found: ${CFG:-none}"
+                    exit 1
+                  fi
+                  tar --zstd -xOf "$PKG" "$CFG" > distro-base.config
+                  if [ ! -s distro-base.config ]; then
+                    echo "::error::Extracted Arch kernel config is empty"
+                    exit 1
+                  fi
+                  rm -rf "$CACHE"
+
             - name: Compute content hash
               id: content-hash
               shell: bash
@@ -113,7 +138,7 @@ jobs:
                       echo "distro=arch"
                       sha256sum \
                         arch/PKGBUILD \
-                        arch/config \
+                        distro-base.config \
                         config/arch.config.set \
                         config/ogc.config.set \
                         config/arch.config.unset \
@@ -202,7 +227,7 @@ jobs:
               if: steps.check-existing.outputs.exists != 'true'
               uses: OpenGamingCollective/kernel-configurator@5b4abc58a2edf89941180dbbe33b26415db23b0b # v1.0.1
               with:
-                  config: arch/config
+                  config: distro-base.config
                   set: |
                       config/arch.config.set
                       config/ogc.config.set

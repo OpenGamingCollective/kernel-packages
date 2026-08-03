@@ -100,6 +100,35 @@ jobs:
             - name: Setup ORAS
               uses: oras-project/setup-oras@22ce207df3b08e061f537244349aac6ae1d214f6 # v1
 
+            - name: Fetch Ubuntu kernel config
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  export DEBIAN_FRONTEND=noninteractive
+                  CACHE="${GITHUB_WORKSPACE}/pkgcache"
+                  ABI=$(apt-cache depends linux-image-generic \
+                        | awk -F'linux-image-' '/Depends: linux-image-[0-9]/ {print $2}' \
+                        | sed 's/-generic$//')
+                  if [ "$(printf '%s\n' "$ABI" | wc -l)" -ne 1 ] || [ -z "$ABI" ]; then
+                    echo "::error::Could not resolve a single kernel ABI from linux-image-generic, got: ${ABI:-none}"
+                    exit 1
+                  fi
+                  echo "::notice::Base config from Ubuntu linux-buildinfo-${ABI}-generic"
+                  mkdir -p "$CACHE"
+                  ( cd "$CACHE" && apt-get download -o APT::Sandbox::User=root "linux-buildinfo-${ABI}-generic" )
+                  DEB=$(find "$CACHE" -maxdepth 1 -name 'linux-buildinfo-*.deb' -type f)
+                  if [ "$(printf '%s\n' "$DEB" | wc -l)" -ne 1 ] || [ -z "$DEB" ]; then
+                    echo "::error::Expected exactly one linux-buildinfo package, found: ${DEB:-none}"
+                    exit 1
+                  fi
+                  dpkg-deb --fsys-tarfile "$DEB" \
+                    | tar -xOf - "./usr/lib/linux/${ABI}-generic/config" > distro-base.config
+                  if [ ! -s distro-base.config ]; then
+                    echo "::error::Extracted Ubuntu kernel config is empty"
+                    exit 1
+                  fi
+                  rm -rf "$CACHE"
+
             - name: Compute content hash
               id: content-hash
               shell: bash
@@ -109,7 +138,7 @@ jobs:
                       echo "ogc_version=${{ steps.version.outputs.ogc_version }}"
                       echo "distro=ubuntu"
                       sha256sum \
-                        ubuntu/config \
+                        distro-base.config \
                         config/ubuntu.config.set \
                         config/ogc.config.set \
                         config/ubuntu.config.unset \
@@ -175,7 +204,7 @@ jobs:
               if: steps.check-existing.outputs.exists != 'true'
               uses: OpenGamingCollective/kernel-configurator@5b4abc58a2edf89941180dbbe33b26415db23b0b # v1.0.1
               with:
-                  config: ubuntu/config
+                  config: distro-base.config
                   set: |
                       config/ubuntu.config.set
                       config/ogc.config.set

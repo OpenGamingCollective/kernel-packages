@@ -85,17 +85,30 @@ jobs:
                   echo "kernel_version=$KERNEL_VERSION" >> "$GITHUB_OUTPUT"
                   echo "major_version=$MAJOR_VERSION" >> "$GITHUB_OUTPUT"
                   OGC_REV="${OGC_VERSION##*-ogc}"
-                  BASE_KVER="${KERNEL_VERSION%.*}"
-                  STABLE_KVER="${KERNEL_VERSION##*.}"
-                  if [ "$STABLE_KVER" = "0" ]; then
-                    TAR_KVER="$BASE_KVER"
-                  else
+                  if [[ "$KERNEL_VERSION" == *-rc* ]]; then
+                    # Mainline release candidates (x.y-rcN) have no stable sublevel
+                    IS_RC=true
+                    RC_VER="${KERNEL_VERSION##*-}"
+                    BASE_KVER="${KERNEL_VERSION%-rc*}"
+                    STABLE_KVER="0"
                     TAR_KVER="$KERNEL_VERSION"
+                  else
+                    IS_RC=false
+                    RC_VER="none"
+                    BASE_KVER="${KERNEL_VERSION%.*}"
+                    STABLE_KVER="${KERNEL_VERSION##*.}"
+                    if [ "$STABLE_KVER" = "0" ]; then
+                      TAR_KVER="$BASE_KVER"
+                    else
+                      TAR_KVER="$KERNEL_VERSION"
+                    fi
                   fi
                   echo "ogc_rev=$OGC_REV" >> "$GITHUB_OUTPUT"
                   echo "base_kver=$BASE_KVER" >> "$GITHUB_OUTPUT"
                   echo "stable_kver=$STABLE_KVER" >> "$GITHUB_OUTPUT"
                   echo "tar_kver=$TAR_KVER" >> "$GITHUB_OUTPUT"
+                  echo "is_rc=$IS_RC" >> "$GITHUB_OUTPUT"
+                  echo "rc_ver=$RC_VER" >> "$GITHUB_OUTPUT"
 
             - name: Setup ORAS
               uses: oras-project/setup-oras@22ce207df3b08e061f537244349aac6ae1d214f6 # v1
@@ -182,8 +195,7 @@ jobs:
                   TAR_KVER="${{ steps.version.outputs.tar_kver }}"
                   MAJOR_VERSION="${{ steps.version.outputs.major_version }}"
                   OGC_VERSION="${{ steps.version.outputs.ogc_version }}"
-                  wget https://cdn.kernel.org/pub/linux/kernel/v${MAJOR_VERSION}/linux-${TAR_KVER}.tar.xz
-                  wget https://cdn.kernel.org/pub/linux/kernel/v${MAJOR_VERSION}/linux-${TAR_KVER}.tar.sign
+                  IS_RC="${{ steps.version.outputs.is_rc }}"
                   wget https://github.com/OpenGamingCollective/linux/releases/download/v${OGC_VERSION}/monolithic.patch
                   wget https://github.com/OpenGamingCollective/linux/releases/download/v${OGC_VERSION}/monolithic.patch.sig
                   # Import kernel.org signing keys (Linus Torvalds & Greg Kroah-Hartman)
@@ -192,8 +204,21 @@ jobs:
                     647F28654894E3BD457199BE38DBBDC86092693E
                   # Import OGC patch signing key
                   gpg --import $GITHUB_WORKSPACE/public.key
-                  # Verify kernel tarball signature
-                  xz -dc linux-${TAR_KVER}.tar.xz | gpg --verify linux-${TAR_KVER}.tar.sign -
+                  if [ "$IS_RC" = "true" ]; then
+                    git clone --depth=1 --branch v${TAR_KVER} \
+                      https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git \
+                      linux-${TAR_KVER}.git
+                    git -C linux-${TAR_KVER}.git verify-tag v${TAR_KVER}
+                    git -C linux-${TAR_KVER}.git archive --format=tar \
+                      --prefix=linux-${TAR_KVER}/ v${TAR_KVER} \
+                      | xz -T0 -0 > linux-${TAR_KVER}.tar.xz
+                    rm -rf linux-${TAR_KVER}.git
+                  else
+                    wget https://cdn.kernel.org/pub/linux/kernel/v${MAJOR_VERSION}/linux-${TAR_KVER}.tar.xz
+                    wget https://cdn.kernel.org/pub/linux/kernel/v${MAJOR_VERSION}/linux-${TAR_KVER}.tar.sign
+                    # Verify kernel tarball signature
+                    xz -dc linux-${TAR_KVER}.tar.xz | gpg --verify linux-${TAR_KVER}.tar.sign -
+                  fi
                   # Verify OGC monolithic patch signature
                   gpg --verify monolithic.patch.sig monolithic.patch
                   tar -xf linux-${TAR_KVER}.tar.xz
@@ -255,7 +280,9 @@ jobs:
                       echo "::error::Failed to capture digest from oras push"
                       exit 1
                   fi
-                  oras tag "${REPO}:${VERSION}" latest
+                  if [ "${{ steps.version.outputs.is_rc }}" != "true" ]; then
+                    oras tag "${REPO}:${VERSION}" latest
+                  fi
                   echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
 
             - name: Tag with content hash
@@ -272,7 +299,9 @@ jobs:
                   VERSION="${{ steps.version.outputs.ogc_version }}.${{ steps.buildnum.outputs.build_num }}"
                   REPO="${{ env.OCI_REPO }}"
                   cosign sign --yes "${REPO}:${VERSION}"
-                  cosign sign --yes "${REPO}:latest"
+                  if [ "${{ steps.version.outputs.is_rc }}" != "true" ]; then
+                    cosign sign --yes "${REPO}:latest"
+                  fi
 
             - name: Attest build provenance
               if: startsWith(github.ref, 'refs/tags/') && steps.check-existing.outputs.exists != 'true'

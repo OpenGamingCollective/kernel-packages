@@ -36,17 +36,25 @@ Summary: The Linux Kernel with Open Gaming Collective (OGC) patches
 
 %define _basekver @@BASEKVER@@
 %define _stablekver @@STABLEKVER@@
+%define _rcver @@RCVER@@
+
+%if "%{_rcver}" == "none"
 %if %{_stablekver} == 0
 %define _tarkver %{_basekver}
 %else
 %define _tarkver %{_basekver}.%{_stablekver}
+%endif
+%define _rcrel %{nil}
+%else
+%define _tarkver %{_basekver}-%{_rcver}
+%define _rcrel .%{_rcver}
 %endif
 
 Version: %{_basekver}.%{_stablekver}
 
 %define ogcver @@OGCVER@@
 %define buildnum @@BUILDNUM@@
-Release: ogc%{ogcver}.%{buildnum}%{?dist}
+Release: ogc%{ogcver}%{_rcrel}.%{buildnum}%{?dist}
 
 # Define rawhide fedora version
 %define _rawhidever 44

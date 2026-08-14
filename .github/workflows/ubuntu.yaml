@@ -198,10 +198,15 @@ jobs:
                   IS_RC="${{ steps.version.outputs.is_rc }}"
                   wget https://github.com/OpenGamingCollective/linux/releases/download/v${OGC_VERSION}/monolithic.patch
                   wget https://github.com/OpenGamingCollective/linux/releases/download/v${OGC_VERSION}/monolithic.patch.sig
-                  # Import kernel.org signing keys (Linus Torvalds & Greg Kroah-Hartman)
-                  gpg --keyserver hkps://keyserver.ubuntu.com --recv-keys \
-                    ABAF11C65A2970B130ABE3C479BE3E4300411886 \
-                    647F28654894E3BD457199BE38DBBDC86092693E
+                  KORG_KEYS="https://git.kernel.org/pub/scm/docs/kernel/pgpkeys.git/plain/keys"
+                  for KEY in ABAF11C65A2970B130ABE3C479BE3E4300411886:79BE3E4300411886 \
+                             647F28654894E3BD457199BE38DBBDC86092693E:38DBBDC86092693E; do
+                    KEYID="${KEY#*:}"
+                    wget -O "${KEYID}.asc" "${KORG_KEYS}/${KEYID}.asc"
+                    gpg --import "${KEYID}.asc"
+                    # Confirm the key landed under its expected full fingerprint
+                    gpg --list-keys "${KEY%:*}" > /dev/null
+                  done
                   # Import OGC patch signing key
                   gpg --import $GITHUB_WORKSPACE/public.key
                   if [ "$IS_RC" = "true" ]; then

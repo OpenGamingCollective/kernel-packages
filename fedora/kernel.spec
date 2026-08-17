@@ -958,24 +958,13 @@ fi
 %{_bindir}/hwnoise
 %{_bindir}/osnoise
 %{_bindir}/timerlat
-%{_mandir}/man1/rtla-hwnoise.1.gz
-%{_mandir}/man1/rtla-osnoise-hist.1.gz
-%{_mandir}/man1/rtla-osnoise-top.1.gz
-%{_mandir}/man1/rtla-osnoise.1.gz
-%{_mandir}/man1/rtla-timerlat-hist.1.gz
-%{_mandir}/man1/rtla-timerlat-top.1.gz
-%{_mandir}/man1/rtla-timerlat.1.gz
 %{_mandir}/man1/rtla.1.gz
+%{_mandir}/man1/rtla-*.1.gz
 
 %files -n rv
 %{_bindir}/rv
-%{_mandir}/man1/rv-list.1.gz
-%{_mandir}/man1/rv-mon-wip.1.gz
-%{_mandir}/man1/rv-mon-wwnr.1.gz
-%{_mandir}/man1/rv-mon.1.gz
-%{_mandir}/man1/rv-mon-sched.1.gz
-%{_mandir}/man1/rv-mon-stall.1.gz
 %{_mandir}/man1/rv.1.gz
+%{_mandir}/man1/rv-*.1.gz
 
 %files
 

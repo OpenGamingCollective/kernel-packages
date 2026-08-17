@@ -80,6 +80,12 @@ jobs:
                     OGC_VERSION="${TAG#v}"
                   fi
                   KERNEL_VERSION="${OGC_VERSION%-ogc*}"
+                  if [[ "$KERNEL_VERSION" == *-lts ]]; then
+                    IS_LTS=true
+                    KERNEL_VERSION="${KERNEL_VERSION%-lts}"
+                  else
+                    IS_LTS=false
+                  fi
                   MAJOR_VERSION="${KERNEL_VERSION%%.*}.x"
                   echo "ogc_version=$OGC_VERSION" >> "$GITHUB_OUTPUT"
                   echo "kernel_version=$KERNEL_VERSION" >> "$GITHUB_OUTPUT"
@@ -103,12 +109,20 @@ jobs:
                       TAR_KVER="$KERNEL_VERSION"
                     fi
                   fi
+                  if [ "$IS_RC" = "true" ]; then
+                    STREAM_TAG=""
+                  elif [ "$IS_LTS" = "true" ]; then
+                    STREAM_TAG="lts"
+                  else
+                    STREAM_TAG="latest"
+                  fi
                   echo "ogc_rev=$OGC_REV" >> "$GITHUB_OUTPUT"
                   echo "base_kver=$BASE_KVER" >> "$GITHUB_OUTPUT"
                   echo "stable_kver=$STABLE_KVER" >> "$GITHUB_OUTPUT"
                   echo "tar_kver=$TAR_KVER" >> "$GITHUB_OUTPUT"
                   echo "is_rc=$IS_RC" >> "$GITHUB_OUTPUT"
                   echo "rc_ver=$RC_VER" >> "$GITHUB_OUTPUT"
+                  echo "stream_tag=$STREAM_TAG" >> "$GITHUB_OUTPUT"
 
             - name: Setup ORAS
               uses: oras-project/setup-oras@22ce207df3b08e061f537244349aac6ae1d214f6 # v1
@@ -285,8 +299,9 @@ jobs:
                       echo "::error::Failed to capture digest from oras push"
                       exit 1
                   fi
-                  if [ "${{ steps.version.outputs.is_rc }}" != "true" ]; then
-                    oras tag "${REPO}:${VERSION}" latest
+                  STREAM_TAG="${{ steps.version.outputs.stream_tag }}"
+                  if [ -n "$STREAM_TAG" ]; then
+                    oras tag "${REPO}:${VERSION}" "$STREAM_TAG"
                   fi
                   echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
 
@@ -303,9 +318,10 @@ jobs:
               run: |
                   VERSION="${{ steps.version.outputs.ogc_version }}.${{ steps.buildnum.outputs.build_num }}"
                   REPO="${{ env.OCI_REPO }}"
+                  STREAM_TAG="${{ steps.version.outputs.stream_tag }}"
                   cosign sign --yes "${REPO}:${VERSION}"
-                  if [ "${{ steps.version.outputs.is_rc }}" != "true" ]; then
-                    cosign sign --yes "${REPO}:latest"
+                  if [ -n "$STREAM_TAG" ]; then
+                    cosign sign --yes "${REPO}:${STREAM_TAG}"
                   fi
 
             - name: Attest build provenance

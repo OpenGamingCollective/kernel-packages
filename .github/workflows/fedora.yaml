@@ -77,6 +77,12 @@ jobs:
                     OGC_VERSION="${TAG#v}"
                   fi
                   KERNEL_VERSION="${OGC_VERSION%-ogc*}"
+                  if [[ "$KERNEL_VERSION" == *-lts ]]; then
+                    IS_LTS=true
+                    KERNEL_VERSION="${KERNEL_VERSION%-lts}"
+                  else
+                    IS_LTS=false
+                  fi
                   MAJOR_VERSION="${KERNEL_VERSION%%.*}.x"
                   OGC_REV="${OGC_VERSION##*-ogc}"
                   if [[ "$KERNEL_VERSION" == *-rc* ]]; then
@@ -97,6 +103,13 @@ jobs:
                       TAR_KVER="$KERNEL_VERSION"
                     fi
                   fi
+                  if [ "$IS_RC" = "true" ]; then
+                    STREAM_TAG=""
+                  elif [ "$IS_LTS" = "true" ]; then
+                    STREAM_TAG="lts"
+                  else
+                    STREAM_TAG="latest"
+                  fi
                   echo "ogc_version=$OGC_VERSION" >> "$GITHUB_OUTPUT"
                   echo "kernel_version=$KERNEL_VERSION" >> "$GITHUB_OUTPUT"
                   echo "major_version=$MAJOR_VERSION" >> "$GITHUB_OUTPUT"
@@ -106,6 +119,7 @@ jobs:
                   echo "tar_kver=$TAR_KVER" >> "$GITHUB_OUTPUT"
                   echo "is_rc=$IS_RC" >> "$GITHUB_OUTPUT"
                   echo "rc_ver=$RC_VER" >> "$GITHUB_OUTPUT"
+                  echo "stream_tag=$STREAM_TAG" >> "$GITHUB_OUTPUT"
 
             - name: Setup ORAS
               uses: oras-project/setup-oras@22ce207df3b08e061f537244349aac6ae1d214f6 # v1
@@ -325,10 +339,9 @@ jobs:
                       echo "::error::Failed to capture digest from oras push"
                       exit 1
                   fi
-                  # Release candidates keep their version tag only, so anyone
-                  # tracking latest stays on the newest stable build
-                  if [ "${{ steps.version.outputs.is_rc }}" != "true" ]; then
-                    oras tag "${REPO}:${VERSION}-fc${{ matrix.fedora_version }}" latest-fc${{ matrix.fedora_version }}
+                  STREAM_TAG="${{ steps.version.outputs.stream_tag }}"
+                  if [ -n "$STREAM_TAG" ]; then
+                    oras tag "${REPO}:${VERSION}-fc${{ matrix.fedora_version }}" "${STREAM_TAG}-fc${{ matrix.fedora_version }}"
                   fi
                   echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
 
@@ -345,9 +358,10 @@ jobs:
               run: |
                   VERSION="${{ steps.version.outputs.ogc_version }}.${{ steps.buildnum.outputs.build_num }}"
                   REPO="${{ env.OCI_REPO }}"
+                  STREAM_TAG="${{ steps.version.outputs.stream_tag }}"
                   cosign sign --yes "${REPO}:${VERSION}-fc${{ matrix.fedora_version }}"
-                  if [ "${{ steps.version.outputs.is_rc }}" != "true" ]; then
-                    cosign sign --yes "${REPO}:latest-fc${{ matrix.fedora_version }}"
+                  if [ -n "$STREAM_TAG" ]; then
+                    cosign sign --yes "${REPO}:${STREAM_TAG}-fc${{ matrix.fedora_version }}"
                   fi
 
             - name: Attest build provenance

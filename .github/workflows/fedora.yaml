@@ -83,6 +83,13 @@ jobs:
                   else
                     IS_LTS=false
                   fi
+                  if [[ "$KERNEL_VERSION" =~ ^[0-9]+\.[0-9]+$ ]]; then
+                    echo "::warning::Kernel version '$KERNEL_VERSION' from '$OGC_VERSION' is missing its sublevel; building as ${KERNEL_VERSION}.0. Use the full x.y.z version when tagging so the artifact tag matches the package version."
+                    KERNEL_VERSION="${KERNEL_VERSION}.0"
+                  elif ! [[ "$KERNEL_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ || "$KERNEL_VERSION" =~ ^[0-9]+\.[0-9]+-rc[0-9]+$ ]]; then
+                    echo "::error::Invalid kernel version '$KERNEL_VERSION' from '$OGC_VERSION': expected x.y.z or x.y-rcN"
+                    exit 1
+                  fi
                   MAJOR_VERSION="${KERNEL_VERSION%%.*}.x"
                   OGC_REV="${OGC_VERSION##*-ogc}"
                   if [[ "$KERNEL_VERSION" == *-rc* ]]; then

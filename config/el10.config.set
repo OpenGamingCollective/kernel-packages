@@ -1,0 +1,5 @@
+# OGC config layered ontop of the default EL10 config
+CONFIG_DEFAULT_SECURITY_SELINUX=y
+CONFIG_SECURITY_APPARMOR=y
+CONFIG_SECURITY_IPE=y
+CONFIG_LSM="yama,integrity,selinux,bpf,landlock,ipe"

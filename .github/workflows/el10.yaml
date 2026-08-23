@@ -1,0 +1,355 @@
+name: Build (el10)
+
+on:
+    workflow_dispatch:
+        inputs:
+            version:
+                description: 'Enter a tagged OGC kernel version in the format <kernel-version>-ogc<rev>'
+                required: true
+    push:
+        tags:
+            - 'v*'
+
+env:
+    OCI_REPO: ghcr.io/${{ github.repository }}-el10
+
+permissions:
+    contents: read
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    build-rpm:
+        runs-on: ubuntu-latest
+
+        permissions:
+            contents: read
+            packages: write
+            id-token: write
+            attestations: write
+            artifact-metadata: write
+
+        container:
+            image: quay.io/centos/centos:stream10
+            volumes:
+                - /usr:/usr-host
+                - /opt:/opt-host
+            options: --privileged
+
+        steps:
+            - name: Prepare environment
+              shell: bash
+              run: |
+                  echo "OCI_REPO=${OCI_REPO,,}" >> ${GITHUB_ENV}
+
+            - name: Maximize build space
+              run: |
+                  df -h
+                  rm -rf /usr-host/share/dotnet
+                  rm -rf /usr-host/share/swift
+                  rm -rf /usr-host/share/java
+                  rm -rf /usr-host/local/lib/android
+                  rm -rf /opt-host/ghc
+                  rm -rf /opt-host/hostedtoolcache
+                  rm -rf /opt-host/az
+                  df -h
+
+            - name: Checkout sources
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  persist-credentials: false
+
+            - name: Get version
+              id: version
+              shell: bash
+              run: |
+                  if [ -n "${{ github.event.inputs.version }}" ]; then
+                    OGC_VERSION="${{ github.event.inputs.version }}"
+                  else
+                    TAG="${{ github.ref_name }}"
+                    OGC_VERSION="${TAG#v}"
+                  fi
+                  KERNEL_VERSION="${OGC_VERSION%-ogc*}"
+                  if [[ "$KERNEL_VERSION" == *-lts ]]; then
+                    IS_LTS=true
+                    KERNEL_VERSION="${KERNEL_VERSION%-lts}"
+                  else
+                    IS_LTS=false
+                  fi
+                  if [[ "$KERNEL_VERSION" =~ ^[0-9]+\.[0-9]+$ ]]; then
+                    echo "::warning::Kernel version '$KERNEL_VERSION' from '$OGC_VERSION' is missing its sublevel; building as ${KERNEL_VERSION}.0. Use the full x.y.z version when tagging so the artifact tag matches the package version."
+                    KERNEL_VERSION="${KERNEL_VERSION}.0"
+                  elif ! [[ "$KERNEL_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ || "$KERNEL_VERSION" =~ ^[0-9]+\.[0-9]+-rc[0-9]+$ ]]; then
+                    echo "::error::Invalid kernel version '$KERNEL_VERSION' from '$OGC_VERSION': expected x.y.z or x.y-rcN"
+                    exit 1
+                  fi
+                  MAJOR_VERSION="${KERNEL_VERSION%%.*}.x"
+                  OGC_REV="${OGC_VERSION##*-ogc}"
+                  if [[ "$KERNEL_VERSION" == *-rc* ]]; then
+                    IS_RC=true
+                    RC_VER="${KERNEL_VERSION##*-}"
+                    BASE_KVER="${KERNEL_VERSION%-rc*}"
+                    STABLE_KVER="0"
+                    TAR_KVER="$KERNEL_VERSION"
+                  else
+                    IS_RC=false
+                    RC_VER="none"
+                    BASE_KVER="${KERNEL_VERSION%.*}"
+                    STABLE_KVER="${KERNEL_VERSION##*.}"
+                    if [ "$STABLE_KVER" = "0" ]; then
+                      TAR_KVER="$BASE_KVER"
+                    else
+                      TAR_KVER="$KERNEL_VERSION"
+                    fi
+                  fi
+                  if [ "$IS_RC" = "true" ]; then
+                    STREAM_TAG=""
+                  elif [ "$IS_LTS" = "true" ]; then
+                    STREAM_TAG="lts"
+                  else
+                    STREAM_TAG="latest"
+                  fi
+                  echo "ogc_version=$OGC_VERSION" >> "$GITHUB_OUTPUT"
+                  echo "kernel_version=$KERNEL_VERSION" >> "$GITHUB_OUTPUT"
+                  echo "major_version=$MAJOR_VERSION" >> "$GITHUB_OUTPUT"
+                  echo "ogc_rev=$OGC_REV" >> "$GITHUB_OUTPUT"
+                  echo "base_kver=$BASE_KVER" >> "$GITHUB_OUTPUT"
+                  echo "stable_kver=$STABLE_KVER" >> "$GITHUB_OUTPUT"
+                  echo "tar_kver=$TAR_KVER" >> "$GITHUB_OUTPUT"
+                  echo "is_rc=$IS_RC" >> "$GITHUB_OUTPUT"
+                  echo "rc_ver=$RC_VER" >> "$GITHUB_OUTPUT"
+                  echo "stream_tag=$STREAM_TAG" >> "$GITHUB_OUTPUT"
+
+            - name: Setup ORAS
+              uses: oras-project/setup-oras@22ce207df3b08e061f537244349aac6ae1d214f6 # v1
+
+            - name: Fetch EL10 kernel config
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  CACHE="${GITHUB_WORKSPACE}/pkgcache"
+                  dnf -y install dnf-plugins-core cpio
+                  mkdir -p "$CACHE"
+                  dnf download --destdir "$CACHE" kernel-core
+                  RPM=$(find "$CACHE" -maxdepth 1 -name 'kernel-core-*.rpm' -type f)
+                  if [ "$(printf '%s\n' "$RPM" | wc -l)" -ne 1 ] || [ -z "$RPM" ]; then
+                    echo "::error::Expected exactly one kernel-core package, found: ${RPM:-none}"
+                    exit 1
+                  fi
+                  echo "::notice::Base config from EL10 $(basename "$RPM")"
+                  CFG=$(rpm -qlp "$RPM" | grep -E '^/lib/modules/[^/]+/config$' || true)
+                  if [ "$(printf '%s\n' "$CFG" | wc -l)" -ne 1 ] || [ -z "$CFG" ]; then
+                    echo "::error::Expected exactly one kernel config in $RPM, found: ${CFG:-none}"
+                    exit 1
+                  fi
+                  rpm2cpio "$RPM" | cpio -i --to-stdout ".${CFG}" > distro-base.config
+                  if [ ! -s distro-base.config ]; then
+                    echo "::error::Extracted EL10 kernel config is empty"
+                    exit 1
+                  fi
+                  rm -rf "$CACHE"
+
+            - name: Compute content hash
+              id: content-hash
+              shell: bash
+              run: |
+                  HASH=$(
+                    {
+                      echo "ogc_version=${{ steps.version.outputs.ogc_version }}"
+                      echo "distro=el10"
+                      sha256sum \
+                        el10/kernel.spec \
+                        distro-base.config \
+                        config/el10.config.set \
+                        config/ogc.config.set \
+                        config/el10.config.unset \
+                        config/ogc.config.unset \
+                        .github/workflows/el10.yaml
+                    } | sha256sum | cut -d' ' -f1
+                  )
+                  SHORT_HASH="${HASH:0:12}"
+                  echo "hash=$SHORT_HASH" >> "$GITHUB_OUTPUT"
+                  echo "Content hash: $SHORT_HASH"
+
+            - name: Check for existing build
+              id: check-existing
+              shell: bash
+              run: |
+                  REPO="${OCI_REPO,,}"
+                  TAG="sha-${{ steps.content-hash.outputs.hash }}"
+                  if oras manifest fetch "${REPO}:${TAG}" > /dev/null 2>&1; then
+                    echo "exists=true" >> "$GITHUB_OUTPUT"
+                    echo "::notice::Skipping build, artifact with content hash ${TAG} already exists"
+                  else
+                    echo "exists=false" >> "$GITHUB_OUTPUT"
+                    echo "No existing artifact for ${TAG}, proceeding with build"
+                  fi
+
+            - name: Get build number
+              if: steps.check-existing.outputs.exists != 'true'
+              id: buildnum
+              shell: bash
+              run: |
+                  VERSION_PREFIX="${{ steps.version.outputs.ogc_version }}"
+                  REPO="${OCI_REPO,,}"
+                  EXISTING=$(oras repo tags "${REPO}" 2>/dev/null || true)
+                  EXISTING=$(echo "$EXISTING" | { grep -cE "^${VERSION_PREFIX}\.[0-9]+$" || true; })
+                  BUILD_NUM=$((EXISTING + 1))
+                  echo "build_num=$BUILD_NUM" >> "$GITHUB_OUTPUT"
+                  echo "Build number: $BUILD_NUM"
+
+            - name: Substitute versions
+              if: steps.check-existing.outputs.exists != 'true'
+              shell: bash
+              run: |
+                  sed -i \
+                    -e "s/@@BASEKVER@@/${{ steps.version.outputs.base_kver }}/" \
+                    -e "s/@@STABLEKVER@@/${{ steps.version.outputs.stable_kver }}/" \
+                    -e "s/@@RCVER@@/${{ steps.version.outputs.rc_ver }}/" \
+                    -e "s/@@OGCVER@@/${{ steps.version.outputs.ogc_rev }}/" \
+                    -e "s/@@BUILDNUM@@/${{ steps.buildnum.outputs.build_num }}/" \
+                    el10/kernel.spec
+
+            - name: Dependencies
+              if: steps.check-existing.outputs.exists != 'true'
+              run: |
+                  dnf -y install rpm-build redhat-rpm-config git gnupg2 jq sed wget dwarves cpio findutils gcc make binutils bison flex python3 rust rust-src bindgen openssl-devel elfutils-libelf-devel zlib-devel ncurses-devel kmod
+
+            - name: Download and verify kernel source
+              if: steps.check-existing.outputs.exists != 'true'
+              shell: bash
+              run: |
+                  TAR_KVER="${{ steps.version.outputs.tar_kver }}"
+                  MAJOR_VERSION="${{ steps.version.outputs.major_version }}"
+                  OGC_VERSION="${{ steps.version.outputs.ogc_version }}"
+                  IS_RC="${{ steps.version.outputs.is_rc }}"
+                  wget https://github.com/OpenGamingCollective/linux/releases/download/v${OGC_VERSION}/monolithic.patch
+                  wget https://github.com/OpenGamingCollective/linux/releases/download/v${OGC_VERSION}/monolithic.patch.sig
+                  KORG_KEYS="https://git.kernel.org/pub/scm/docs/kernel/pgpkeys.git/plain/keys"
+                  for KEY in ABAF11C65A2970B130ABE3C479BE3E4300411886:79BE3E4300411886 \
+                             647F28654894E3BD457199BE38DBBDC86092693E:38DBBDC86092693E; do
+                    KEYID="${KEY#*:}"
+                    wget -O "${KEYID}.asc" "${KORG_KEYS}/${KEYID}.asc"
+                    gpg --import "${KEYID}.asc"
+                    gpg --list-keys "${KEY%:*}" > /dev/null
+                  done
+                  gpg --import $GITHUB_WORKSPACE/public.key
+                  if [ "$IS_RC" = "true" ]; then
+                    git clone --depth=1 --branch v${TAR_KVER} \
+                      https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git \
+                      linux-${TAR_KVER}.git
+                    git -C linux-${TAR_KVER}.git verify-tag v${TAR_KVER}
+                    git -C linux-${TAR_KVER}.git archive --format=tar \
+                      --prefix=linux-${TAR_KVER}/ v${TAR_KVER} \
+                      | xz -T0 -0 > linux-${TAR_KVER}.tar.xz
+                    rm -rf linux-${TAR_KVER}.git
+                  else
+                    wget https://cdn.kernel.org/pub/linux/kernel/v${MAJOR_VERSION}/linux-${TAR_KVER}.tar.xz
+                    wget https://cdn.kernel.org/pub/linux/kernel/v${MAJOR_VERSION}/linux-${TAR_KVER}.tar.sign
+                    xz -dc linux-${TAR_KVER}.tar.xz | gpg --verify linux-${TAR_KVER}.tar.sign -
+                  fi
+                  gpg --verify monolithic.patch.sig monolithic.patch
+                  tar -xf linux-${TAR_KVER}.tar.xz
+                  cd linux-${TAR_KVER}
+                  patch -Np1 < ../monolithic.patch
+
+            - name: Merge kernel configuration files
+              if: steps.check-existing.outputs.exists != 'true'
+              uses: OpenGamingCollective/kernel-configurator@5b4abc58a2edf89941180dbbe33b26415db23b0b # v1.0.1
+              with:
+                  config: distro-base.config
+                  set: |
+                      config/el10.config.set
+                      config/ogc.config.set
+                  unset: |
+                      config/el10.config.unset
+                      config/ogc.config.unset
+                  output: linux-${{ steps.version.outputs.tar_kver }}/.config
+
+            - name: Validate combined kernel config file
+              if: steps.check-existing.outputs.exists != 'true'
+              shell: bash
+              run: |
+                  cd linux-${{ steps.version.outputs.tar_kver }}
+                  make olddefconfig
+
+            - name: Build
+              if: steps.check-existing.outputs.exists != 'true'
+              run: |
+                  TAR_KVER="${{ steps.version.outputs.tar_kver }}"
+                  TOPDIR="$(pwd)/rpmbuild"
+                  mkdir -p "$TOPDIR"/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
+                  cp linux-${TAR_KVER}.tar.xz "$TOPDIR/SOURCES/"
+                  cp monolithic.patch "$TOPDIR/SOURCES/"
+                  cp linux-${TAR_KVER}/.config "$TOPDIR/SOURCES/config"
+                  rpmbuild --define "_topdir $TOPDIR" -ba ./el10/kernel.spec
+
+            - name: Setup Cosign
+              if: startsWith(github.ref, 'refs/tags/') && steps.check-existing.outputs.exists != 'true'
+              uses: sigstore/cosign-installer@ba7bc0a3fef59531c69a25acd34668d6d3fe6f22 # v4.1.0
+
+            - name: Login to ghcr.io
+              if: startsWith(github.ref, 'refs/tags/') && steps.check-existing.outputs.exists != 'true'
+              run: |
+                  echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u ${{ github.actor }} --password-stdin
+
+            - name: Push OCI artifact
+              if: startsWith(github.ref, 'refs/tags/') && steps.check-existing.outputs.exists != 'true'
+              id: push
+              run: |
+                  VERSION="${{ steps.version.outputs.ogc_version }}.${{ steps.buildnum.outputs.build_num }}"
+                  REPO="${{ env.OCI_REPO }}"
+                  TOPDIR="$(pwd)/rpmbuild"
+                  mkdir -p /tmp/rpms
+                  cp "$TOPDIR"/RPMS/x86_64/*.rpm /tmp/rpms/ 2>/dev/null || true
+                  cp "$TOPDIR"/RPMS/noarch/*.rpm /tmp/rpms/ 2>/dev/null || true
+                  cd /tmp/rpms
+                  DIGEST=$(oras push --format json "${REPO}:${VERSION}" ./*.rpm | jq -r '.digest')
+                  if [ -z "$DIGEST" ]; then
+                      echo "::error::Failed to capture digest from oras push"
+                      exit 1
+                  fi
+                  STREAM_TAG="${{ steps.version.outputs.stream_tag }}"
+                  if [ -n "$STREAM_TAG" ]; then
+                    oras tag "${REPO}:${VERSION}" "${STREAM_TAG}"
+                  fi
+                  echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+
+            - name: Tag with content hash
+              if: startsWith(github.ref, 'refs/tags/') && steps.check-existing.outputs.exists != 'true'
+              run: |
+                  REPO="${{ env.OCI_REPO }}"
+                  VERSION="${{ steps.version.outputs.ogc_version }}.${{ steps.buildnum.outputs.build_num }}"
+                  oras tag "${REPO}:${VERSION}" \
+                    "sha-${{ steps.content-hash.outputs.hash }}"
+
+            - name: Sign artifacts
+              if: startsWith(github.ref, 'refs/tags/') && steps.check-existing.outputs.exists != 'true'
+              run: |
+                  VERSION="${{ steps.version.outputs.ogc_version }}.${{ steps.buildnum.outputs.build_num }}"
+                  REPO="${{ env.OCI_REPO }}"
+                  STREAM_TAG="${{ steps.version.outputs.stream_tag }}"
+                  cosign sign --yes "${REPO}:${VERSION}"
+                  if [ -n "$STREAM_TAG" ]; then
+                    cosign sign --yes "${REPO}:${STREAM_TAG}"
+                  fi
+
+            - name: Attest build provenance
+              if: startsWith(github.ref, 'refs/tags/') && steps.check-existing.outputs.exists != 'true'
+              uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4
+              with:
+                  subject-name: ${{ env.OCI_REPO }}
+                  subject-digest: ${{ steps.push.outputs.digest }}
+                  push-to-registry: true
+
+            - name: Verify signature
+              if: startsWith(github.ref, 'refs/tags/') && steps.check-existing.outputs.exists != 'true'
+              run: |
+                  VERSION="${{ steps.version.outputs.ogc_version }}.${{ steps.buildnum.outputs.build_num }}"
+                  REPO="${{ env.OCI_REPO }}"
+                  cosign verify \
+                    --certificate-identity-regexp=".*" \
+                    --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+                    "${REPO}:${VERSION}"

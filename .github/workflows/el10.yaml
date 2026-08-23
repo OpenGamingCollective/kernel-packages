@@ -157,16 +157,16 @@ jobs:
               run: |
                   HASH=$(
                     {
-                      echo "ogc_version=${{ steps.version.outputs.ogc_version }}"
-                      echo "distro=el10"
-                      sha256sum \
-                        el10/kernel.spec \
-                        distro-base.config \
-                        config/el10.config.set \
-                        config/ogc.config.set \
-                        config/el10.config.unset \
-                        config/ogc.config.unset \
-                        .github/workflows/el10.yaml
+                  echo "ogc_version=${{ steps.version.outputs.ogc_version }}"
+                  echo "distro=el10"
+                  sha256sum \
+                    el10/kernel.spec \
+                    distro-base.config \
+                    config/fedora.config.set \
+                    config/ogc.config.set \
+                    config/fedora.config.unset \
+                    config/ogc.config.unset \
+                    .github/workflows/el10.yaml
                     } | sha256sum | cut -d' ' -f1
                   )
                   SHORT_HASH="${HASH:0:12}"
@@ -261,10 +261,10 @@ jobs:
               with:
                   config: distro-base.config
                   set: |
-                      config/el10.config.set
+                      config/fedora.config.set
                       config/ogc.config.set
                   unset: |
-                      config/el10.config.unset
+                      config/fedora.config.unset
                       config/ogc.config.unset
                   output: linux-${{ steps.version.outputs.tar_kver }}/.config
 

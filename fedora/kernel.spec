@@ -120,7 +120,9 @@ BuildRequires: lvm2
 BuildRequires: net-tools, hostname, bc, elfutils-devel
 BuildRequires: nss-tools
 BuildRequires: numactl-devel
+%if 0%{?fedora}
 BuildRequires: opencsd-devel >= 1.0.0
+%endif
 BuildRequires: openssl
 BuildRequires: openssl-devel
 BuildRequires: pciutils-devel
@@ -132,7 +134,9 @@ BuildRequires: python3-pyyaml
 BuildRequires: rpm-build, elfutils
 BuildRequires: rsync
 BuildRequires: rust, rust-src, bindgen
+%if 0%{?fedora}
 BuildRequires: sparse
+%endif
 BuildRequires: systemd-boot-unsigned
 BuildRequires: systemd-udev >= 252-1
 # For systemd-repart

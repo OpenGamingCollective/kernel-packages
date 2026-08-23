@@ -25,7 +25,14 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                fedora_version: [43, 44]
+                target:
+                    - id: fc43
+                      image: 'fedora:43'
+                    - id: fc44
+                      image: 'fedora:44'
+                    - id: el10
+                      image: 'quay.io/centos/centos:stream10'
+                      base_config_fedora: '43'
         runs-on: ubuntu-latest
 
         permissions:
@@ -36,7 +43,7 @@ jobs:
             artifact-metadata: write
 
         container:
-            image: fedora:${{ matrix.fedora_version }}
+            image: ${{ matrix.target.image }}
             volumes:
                 - /usr:/usr-host
                 - /opt:/opt-host
@@ -131,20 +138,48 @@ jobs:
             - name: Setup ORAS
               uses: oras-project/setup-oras@22ce207df3b08e061f537244349aac6ae1d214f6 # v1
 
-            - name: Fetch Fedora kernel config
+            - name: Enable EL repositories
+              if: startsWith(matrix.target.id, 'el')
               shell: bash
               run: |
                   set -euo pipefail
+                  # EL ships dnf 4, so use dnf-plugins-core rather than dnf5-plugins.
+                  # kabi-dw, asciidoc, xmlto and libbabeltrace-devel live in EPEL;
+                  # the -devel packages perf needs live in CRB.
+                  dnf -y install dnf-plugins-core
+                  dnf config-manager --set-enabled crb
+                  dnf -y install epel-release
+
+            - name: Fetch base kernel config
+              shell: bash
+              env:
+                  BASE_CONFIG_FEDORA: ${{ matrix.target.base_config_fedora }}
+              run: |
+                  set -euo pipefail
                   CACHE="${GITHUB_WORKSPACE}/pkgcache"
-                  dnf -y install dnf5-plugins cpio
                   mkdir -p "$CACHE"
-                  dnf download --destdir "$CACHE" kernel-core
+                  if [ -n "${BASE_CONFIG_FEDORA:-}" ]; then
+                    # This target is not Fedora, but wants Fedora's config as its
+                    # base, so pull kernel-core straight from the Fedora mirrors
+                    # instead of the container's own repos. --nogpgcheck is safe
+                    # here: nothing is installed, we only extract the config file.
+                    dnf -y install cpio
+                    MIRROR="https://dl.fedoraproject.org/pub/fedora/linux"
+                    dnf download --destdir "$CACHE" --nogpgcheck \
+                      --repofrompath "fedora,${MIRROR}/releases/${BASE_CONFIG_FEDORA}/Everything/x86_64/os/" \
+                      --repofrompath "updates,${MIRROR}/updates/${BASE_CONFIG_FEDORA}/Everything/x86_64/" \
+                      --repo fedora --repo updates \
+                      kernel-core
+                  else
+                    dnf -y install dnf5-plugins cpio
+                    dnf download --destdir "$CACHE" kernel-core
+                  fi
                   RPM=$(find "$CACHE" -maxdepth 1 -name 'kernel-core-*.rpm' -type f)
                   if [ "$(printf '%s\n' "$RPM" | wc -l)" -ne 1 ] || [ -z "$RPM" ]; then
                     echo "::error::Expected exactly one kernel-core package, found: ${RPM:-none}"
                     exit 1
                   fi
-                  echo "::notice::Base config from Fedora $(basename "$RPM")"
+                  echo "::notice::Base config from $(basename "$RPM")"
                   CFG=$(rpm -qlp "$RPM" | grep -E '^/lib/modules/[^/]+/config$' || true)
                   if [ "$(printf '%s\n' "$CFG" | wc -l)" -ne 1 ] || [ -z "$CFG" ]; then
                     echo "::error::Expected exactly one kernel config in $RPM, found: ${CFG:-none}"
@@ -152,7 +187,7 @@ jobs:
                   fi
                   rpm2cpio "$RPM" | cpio -i --to-stdout ".${CFG}" > distro-base.config
                   if [ ! -s distro-base.config ]; then
-                    echo "::error::Extracted Fedora kernel config is empty"
+                    echo "::error::Extracted kernel config is empty"
                     exit 1
                   fi
                   rm -rf "$CACHE"
@@ -164,7 +199,7 @@ jobs:
                   HASH=$(
                     {
                       echo "ogc_version=${{ steps.version.outputs.ogc_version }}"
-                      echo "fedora_version=${{ matrix.fedora_version }}"
+                      echo "target=${{ matrix.target.id }}"
                       sha256sum \
                         fedora/kernel.spec \
                         distro-base.config \
@@ -185,7 +220,7 @@ jobs:
               shell: bash
               run: |
                   REPO="${OCI_REPO,,}"
-                  TAG="sha-${{ steps.content-hash.outputs.hash }}-fc${{ matrix.fedora_version }}"
+                  TAG="sha-${{ steps.content-hash.outputs.hash }}-${{ matrix.target.id }}"
                   if oras manifest fetch "${REPO}:${TAG}" > /dev/null 2>&1; then
                     echo "exists=true" >> "$GITHUB_OUTPUT"
                     echo "::notice::Skipping build, artifact with content hash ${TAG} already exists"
@@ -202,7 +237,7 @@ jobs:
                   VERSION_PREFIX="${{ steps.version.outputs.ogc_version }}"
                   REPO="${OCI_REPO,,}"
                   EXISTING=$(oras repo tags "${REPO}" 2>/dev/null || true)
-                  EXISTING=$(echo "$EXISTING" | { grep -cE "^${VERSION_PREFIX}\.[0-9]+-fc${{ matrix.fedora_version }}$" || true; })
+                  EXISTING=$(echo "$EXISTING" | { grep -cE "^${VERSION_PREFIX}\.[0-9]+-${{ matrix.target.id }}$" || true; })
                   BUILD_NUM=$((EXISTING + 1))
                   echo "build_num=$BUILD_NUM" >> "$GITHUB_OUTPUT"
                   echo "Build number: $BUILD_NUM"
@@ -341,14 +376,14 @@ jobs:
                   cp "$TOPDIR"/RPMS/x86_64/*.rpm /tmp/rpms/ 2>/dev/null || true
                   cp "$TOPDIR"/RPMS/noarch/*.rpm /tmp/rpms/ 2>/dev/null || true
                   cd /tmp/rpms
-                  DIGEST=$(oras push --format json "${REPO}:${VERSION}-fc${{ matrix.fedora_version }}" ./*.rpm | jq -r '.digest')
+                  DIGEST=$(oras push --format json "${REPO}:${VERSION}-${{ matrix.target.id }}" ./*.rpm | jq -r '.digest')
                   if [ -z "$DIGEST" ]; then
                       echo "::error::Failed to capture digest from oras push"
                       exit 1
                   fi
                   STREAM_TAG="${{ steps.version.outputs.stream_tag }}"
                   if [ -n "$STREAM_TAG" ]; then
-                    oras tag "${REPO}:${VERSION}-fc${{ matrix.fedora_version }}" "${STREAM_TAG}-fc${{ matrix.fedora_version }}"
+                    oras tag "${REPO}:${VERSION}-${{ matrix.target.id }}" "${STREAM_TAG}-${{ matrix.target.id }}"
                   fi
                   echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
 
@@ -357,8 +392,8 @@ jobs:
               run: |
                   REPO="${{ env.OCI_REPO }}"
                   VERSION="${{ steps.version.outputs.ogc_version }}.${{ steps.buildnum.outputs.build_num }}"
-                  oras tag "${REPO}:${VERSION}-fc${{ matrix.fedora_version }}" \
-                    "sha-${{ steps.content-hash.outputs.hash }}-fc${{ matrix.fedora_version }}"
+                  oras tag "${REPO}:${VERSION}-${{ matrix.target.id }}" \
+                    "sha-${{ steps.content-hash.outputs.hash }}-${{ matrix.target.id }}"
 
             - name: Sign artifacts
               if: startsWith(github.ref, 'refs/tags/') && steps.check-existing.outputs.exists != 'true'
@@ -366,9 +401,9 @@ jobs:
                   VERSION="${{ steps.version.outputs.ogc_version }}.${{ steps.buildnum.outputs.build_num }}"
                   REPO="${{ env.OCI_REPO }}"
                   STREAM_TAG="${{ steps.version.outputs.stream_tag }}"
-                  cosign sign --yes "${REPO}:${VERSION}-fc${{ matrix.fedora_version }}"
+                  cosign sign --yes "${REPO}:${VERSION}-${{ matrix.target.id }}"
                   if [ -n "$STREAM_TAG" ]; then
-                    cosign sign --yes "${REPO}:${STREAM_TAG}-fc${{ matrix.fedora_version }}"
+                    cosign sign --yes "${REPO}:${STREAM_TAG}-${{ matrix.target.id }}"
                   fi
 
             - name: Attest build provenance
@@ -387,4 +422,4 @@ jobs:
                   cosign verify \
                     --certificate-identity-regexp=".*" \
                     --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
-                    "${REPO}:${VERSION}-fc${{ matrix.fedora_version }}"
+                    "${REPO}:${VERSION}-${{ matrix.target.id }}"

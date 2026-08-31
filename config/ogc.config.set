@@ -1,5 +1,8 @@
 # Globally required OGC options layered on top of all configs
 
+# Reporting
+CONFIG_DRM_PANIC_SCREEN_QR_CODE_URL="https://github.com/OpenGamingCollective/linux/issues"
+
 # Gaming
 CONFIG_NTSYNC=m
 

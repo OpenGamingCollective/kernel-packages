@@ -1,5 +1,8 @@
 # Globally required OGC options layered on top of all configs
 
+# Link in modules that should remain available even after an update
+CONFIG_USB_STORAGE=y
+
 # Reporting
 CONFIG_DRM_PANIC_SCREEN_QR_CODE_URL="https://github.com/OpenGamingCollective/linux/issues"
 

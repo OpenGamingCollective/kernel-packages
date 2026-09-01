@@ -3,6 +3,13 @@
 # Link in modules that should remain available even after an update
 CONFIG_USB_STORAGE=y
 
+# Link in modules required to boot the vast majority of PCs
+CONFIG_NVME_CORE=y
+CONFIG_BLK_DEV_NVME=y
+CONFIG_FAT_FS=y
+CONFIG_MSDOS_FS=y
+CONFIG_VFAT_FS=y
+
 # Reporting
 CONFIG_DRM_PANIC_SCREEN_QR_CODE_URL="https://github.com/OpenGamingCollective/linux/issues"
 

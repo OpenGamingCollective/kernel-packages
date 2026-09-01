@@ -10,6 +10,9 @@ CONFIG_FAT_FS=y
 CONFIG_MSDOS_FS=y
 CONFIG_VFAT_FS=y
 
+# Enable AMD TPUs
+CONFIG_DRM_ACCEL_AMDXDNA=m
+
 # Reporting
 CONFIG_DRM_PANIC_SCREEN_QR_CODE_URL="https://github.com/OpenGamingCollective/linux/issues"
 

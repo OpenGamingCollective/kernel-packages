@@ -30,6 +30,8 @@ jobs:
                       image: 'fedora:43'
                     - id: fc44
                       image: 'fedora:44'
+                    - id: fc45
+                      image: 'fedora:45'
                     - id: el10
                       image: 'quay.io/centos/centos:stream10'
                       base_config_fedora: '43'

@@ -1,5 +1,21 @@
 # Globally required OGC options layered on top of all configs
 
+# Link in modules that should remain available even after an update
+CONFIG_USB_STORAGE=y
+
+# Link in modules required to boot the vast majority of PCs
+CONFIG_NVME_CORE=y
+CONFIG_BLK_DEV_NVME=y
+CONFIG_FAT_FS=y
+CONFIG_MSDOS_FS=y
+CONFIG_VFAT_FS=y
+
+# Enable AMD TPUs
+CONFIG_DRM_ACCEL_AMDXDNA=m
+
+# Reporting
+CONFIG_DRM_PANIC_SCREEN_QR_CODE_URL="https://github.com/OpenGamingCollective/linux/issues"
+
 # Gaming
 CONFIG_NTSYNC=m
 
@@ -29,6 +45,7 @@ CONFIG_MSI_WMI_PLATFORM=m
 CONFIG_AYN_EC=m
 CONFIG_AYANEO_EC=m
 CONFIG_HID_AYANEO=m
+CONFIG_SND_SOC_AW87XXX=m
 
 # OneXPlayer
 CONFIG_HID_OXP=m
@@ -78,6 +95,9 @@ CONFIG_SND_SOC_SOF_INTEL_IPC4=y
 CONFIG_SND_SOC_SOF_AMD_COMMON=m
 CONFIG_SND_SOC_SOF_AMD_ACP63=m
 CONFIG_SND_SOC_TOPOLOGY=y
+
+# Zotac Zone
+CONFIG_ZOTAC_ZONE_HID=m
 
 # Steam Machine
 CONFIG_LEDS_VALVE=m
